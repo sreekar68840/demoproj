@@ -1,0 +1,114 @@
+Terminlogical instruction:
+Strictly follow these instruction for their respective queries
+1. Order delay staus :  counts of orders that are 'On time' and 'Delayed'. Use the md_salesorder table and group results by po_status to get the count of orders for each status without hardcoding specific status values. DO NOT use GROUP BY for customer_id
+2. Delay in order : Difference between latest_purchase_order_receive_date and requested_date (requested_date - latest_purchase_order_receive_date).use DAYS_BETWEEN in your sql query with order status.
+3. average delay: Use the md_salesorder table and calculate the delay by finding the difference between latest_po_receive_date and requested_date. Filter results to include only orders with a po_status of 'Delayed'
+4. to find the top 5 orders with the highest delay for high-priority customers. Use the md_salesorder and md_customer tables, joining them on customer_id. Calculate the delay as the difference in days between requested_date and latest_po_receive_date, and select relevant fields such as sales_order, customer_id, location_id, product_id, latest_po_receive_date, po_status, requested_date, and vendor_id. Filter to include only customers with a cp_customer_attribute set to 'High Priority', and sort by delay in descending order
+5. Safety stock: Use md_transaction and md_salesorder tables, joining on product_id and location_id. Select fields such as product_id, location_id, key_figure_date, inventory_projected, inventory_target,REQUESTED_QUANTITY and requested_date. Calculate safety_stock as the difference between inventory_projected and inventory_target. Filter results to include only records where the sales_order matches a specified value, and ensure key_figure_date is on or before the requested_date of the order
+6. to identify the options available to expedite a specified order from the existing vendor, including the cost impact. Use the md_location_source, md_salesorder, and md_transaction tables. Join these tables on fields like product_id, location_id, and mode_of_transport_id (matching mot_id in md_transaction to mode_of_transport_id in md_location_source). Select fields such as ship_from_loc_id, product_id, location_id, mode_of_transport_id, transportation_lead_time, md_salesorder.requested_quantity and cost_rollup_transportation_cost_rate. Filter results for the specified sales_order and ensure the vendor matches the current vendor's ship_from_loc_id in md_location_sourceUse SELECT DISTINCT in sql query.
+7. to find low/medium priority orders for reassignment to fulfill a specified order: Use the md_salesorder and md_customer tables, joining on customer_id. Select relevant fields such as sales_order, customer_id, product_id, requested_quantity, requested_date, and po_status. Filter for orders that match the same product_id as the specified order and have a po_status of 'Delayed'. Additionally, ensure the customer priority level is either 'Low Priority' or 'Medium Priority'."
+8. to find alternate vendors that can fulfill a specific order by retrieving vendor and transportation details. Use md_location_source to identify vendors, joining it with md_salesorder on matching product and location IDs but excluding the current vendor. Filter results for a specified sales_order ID without hardcoding the value. Select fields such as ship_from_loc_id, product_id, location_id, mode_of_transport_id,md_salesorder.requested_quantity and transportation_lead_time to display relevant vendor options. Use SELECT DISTINCT in sql query.
+9. list the lead time and cost per unit for alternate vendors: Use the md_location_source, md_salesorder, and md_transaction tables. Join these tables based on product_id, location_id, and mode_of_transport_id (where mot_id in md_transaction matches mode_of_transport_id in md_location_source). Select fields including ship_from_loc_id, product_id, location_id, mode_of_transport_id, transportation_lead_time,md_salesorder.requested_quantity and cost_rollup_transportation_cost_rate. Filter the results for the specified sales_order and ensure that the alternate vendor's ship_from_loc_id does not match the current vendor's ID.Use SELECT DISTINCT in sql query.
+10. Generate an SQL query that identifies products and customer combinations where annual budget revenue targets are not being met for a given year. Select columns for product_id, customer_id, customer_region, and the year-to-date revenue gap (YTD_REVENUE_GAP_AGAINST_TARGET_REVENUE) from the md_transaction and md_customer tables, labeling this gap as total_revenue_gap. Ensure the query dynamically calculates the key_figure_date to select records for the first of December of the specified year, without hardcoding the date (e.g., for 2024, use 2024-12-01). Perform an inner join between md_transaction and md_customer on customer_id to bring in customer_region. Finally, sort the results in descending order of total_revenue_gap, highlighting combinations with the largest gaps against the target revenue.
+11. for questions of format If we reduce the selling price by x%, increase the demand by y% above 3 combinations then what will be the revenue gap for each of them?
+Strictly use this sql query. 
+note mm is current month
+WITH top_3_combinations AS (
+    SELECT TOP 3
+        md_transaction.product_id, 
+        md_transaction.customer_id,
+        md_customer.customer_region,
+        md_transaction.GROSS_TARGET_REVENUE_YTD as target_revenue,
+        md_transaction.YTD_ACTUALS_REVENUE_CONSENSUS_DEMAND_REVENUE as ytd_actual_revenue,
+        md_transaction.YTD_REVENUE_GAP_AGAINST_TARGET_REVENUE AS original_revenue_gap
+    FROM 
+        md_transaction
+    JOIN 
+        md_customer ON md_transaction.customer_id = md_customer.customer_id
+    WHERE 
+        key_figure_date = 'yyyy-12-01' -- yyyy  is the current year 2024 or 2025
+    ORDER BY 
+        YTD_REVENUE_GAP_AGAINST_TARGET_REVENUE DESC
+),
+price_data AS (
+    SELECT 
+        t.product_id,
+        t.customer_id,
+        MAX(price_m) AS price_m
+    FROM 
+        md_transaction t
+    WHERE 
+        key_figure_date BETWEEN 'yyyy-mm-01' AND 'yyyy-12-01' AND key_figure_date LIKE '%-01'
+   GROUP BY 
+        t.product_id, t.customer_id
+),
+demand_data AS (
+    SELECT 
+        t.product_id,
+        t.customer_id,
+        MAX(consensus_baseline_demand ) AS consensus_baseline_demand
+    FROM 
+        md_transaction t
+    WHERE 
+        key_figure_date BETWEEN 'yyyy-mm-01' AND 'yyyy-12-01' AND key_figure_date LIKE '%-01'
+    GROUP BY 
+        t.product_id, t.customer_id
+),
+monthly_projected_revenue AS (
+    SELECT 
+        DISTINCT MONTH(key_figure_date) AS revenue_month
+        t.product_id,
+        t.customer_id,
+        ROUND((p.price_m * (1.00 - (x/100))) * (d.consensus_baseline_demand * (1.00 + (y/100))), 2) AS monthly_revenue
+    FROM 
+        md_transaction t
+    JOIN 
+        price_data p ON t.product_id = p.product_id 
+        AND t.customer_id = p.customer_id
+    JOIN 
+        demand_data d ON t.product_id = d.product_id 
+        AND t.customer_id = d.customer_id
+    WHERE 
+        key_figure_date BETWEEN 'yyyy-mm-01' AND 'yyyy-12-01' AND key_figure_date LIKE '%-01'
+),
+ytd_rev as (
+	SELECT
+		md_transaction.YTD_ACTUALS_REVENUE_CONSENSUS_DEMAND_REVENUE,
+		md_transaction.product_id,
+		md_transaction.customer_id
+	FROM
+		md_transaction
+	WHERE 
+		key_figure_date = '2025-m1-01' -- here m1 is current month minus 1. if current month is 11 then m1 = 10. If current month mm is 1 then m1 will be 1
+	
+),
+total_projected_revenue AS (
+    SELECT 
+        product_id,
+        customer_id,
+        SUM(monthly_revenue) AS total_revenue_to_december
+    FROM 
+        monthly_projected_revenue
+    GROUP BY 
+        product_id, customer_id
+)
+SELECT 
+    t3.product_id,
+    t3.customer_id,
+    t3.customer_region,
+    t3.target_revenue,
+    t3.ytd_actual_revenue,
+    t3.original_revenue_gap,
+    ROUND(pr.total_revenue_to_december + ytd_rev.YTD_ACTUALS_REVENUE_CONSENSUS_DEMAND_REVENUE,2) AS projected_revenue,
+    ROUND(t3.target_revenue - (pr.total_revenue_to_december + ytd_rev.YTD_ACTUALS_REVENUE_CONSENSUS_DEMAND_REVENUE), 2) AS new_revenue_gap
+FROM 
+    top_3_combinations t3
+JOIN 
+    total_projected_revenue pr ON t3.product_id = pr.product_id 
+    AND t3.customer_id = pr.customer_id
+JOIN
+    ytd_rev ON t3.product_id = ytd_rev.product_id 
+    AND t3.customer_id = ytd_rev.customer_id
+WHERE (pr.total_revenue_to_december + ytd_rev.YTD_ACTUALS_REVENUE_CONSENSUS_DEMAND_REVENUE)>0
+ORDER BY 
+    t3.original_revenue_gap DESC;
