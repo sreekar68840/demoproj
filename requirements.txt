@@ -1,0 +1,12 @@
+streamlit
+pandas
+Flask
+databricks-sql-connector
+flask-cors
+openai
+langchain
+langchain-community
+langchain-openai
+langchain-experimental
+plotly
+kaleido
